@@ -242,13 +242,96 @@ jobs:
               exit 1
           }
 
+          $tradeSource = Get-Content $tradeHeader -Raw
+          $functionStart = $tradeSource.IndexOf("bool CTrade::IsStopped(const string function)")
+
+          if ($functionStart -lt 0) {
+              Write-Error "CTrade::IsStopped function was not found in Trade.mqh."
+              exit 1
+          }
+
+          $functionEnd = $tradeSource.IndexOf("bool CTrade::Buy", $functionStart)
+
+          if ($functionEnd -lt 0) {
+              Write-Error "CTrade::Buy function was not found after CTrade::IsStopped in Trade.mqh."
+              exit 1
+          }
+
+          $isStoppedFunction = $tradeSource.Substring(
+              $functionStart,
+              $functionEnd - $functionStart
+          )
+
+          if (!$isStoppedFunction.Contains("if(!IsStopped())")) {
+              Write-Error "Expected unqualified IsStopped() call was not found in CTrade::IsStopped."
+              exit 1
+          }
+
+          $isStoppedFunction = $isStoppedFunction.Replace(
+              "if(!IsStopped())",
+              "if(!::IsStopped())"
+          )
+
+          $tradeSource = $tradeSource.Substring(0, $functionStart) +
+              $isStoppedFunction +
+              $tradeSource.Substring($functionEnd)
+
+          Set-Content `
+            -Path $tradeHeader `
+            -Value $tradeSource `
+            -Encoding UTF8
+
+          Write-Host "Patched CTrade::IsStopped to call the global ::IsStopped()."
           Write-Host "Installed MQL5 Standard Library Trade classes:"
           Get-ChildItem $trade -File | ForEach-Object {
               Write-Host $_.FullName
           }
 
       # ==========================================================
-      # 8. Compile EA
+      # 8. Verify patched Standard Library Trade classes
+      # ==========================================================
+      - name: Verify patched Standard Library Trade classes
+        shell: pwsh
+        run: |
+          $tradeHeader = Join-Path $env:MT5_DIR "MQL5\Include\Trade\Trade.mqh"
+
+          if (!(Test-Path $tradeHeader)) {
+              Write-Error "Trade.mqh is missing: $tradeHeader"
+              exit 1
+          }
+
+          $tradeSource = Get-Content $tradeHeader -Raw
+          $functionStart = $tradeSource.IndexOf("bool CTrade::IsStopped(const string function)")
+
+          if ($functionStart -lt 0) {
+              Write-Error "CTrade::IsStopped function was not found in Trade.mqh."
+              exit 1
+          }
+
+          $functionEnd = $tradeSource.IndexOf("bool CTrade::Buy", $functionStart)
+
+          if ($functionEnd -lt 0) {
+              Write-Error "CTrade::Buy function was not found after CTrade::IsStopped in Trade.mqh."
+              exit 1
+          }
+
+          $isStoppedFunction = $tradeSource.Substring(
+              $functionStart,
+              $functionEnd - $functionStart
+          )
+
+          if (!$isStoppedFunction.Contains("if(!::IsStopped())")) {
+              Write-Error "Trade.mqh does not contain the corrected global ::IsStopped() call."
+              exit 1
+          }
+
+          Write-Host "Verified corrected call in Trade.mqh:"
+          $isStoppedFunction -split "`r?`n" |
+            Where-Object { $_ -match "IsStopped" } |
+            ForEach-Object { Write-Host $_ }
+
+      # ==========================================================
+      # 9. Compile EA
       # ==========================================================
       - name: Compile EA
         shell: pwsh
@@ -370,7 +453,7 @@ jobs:
           Write-Host "EA compiled successfully."
 
       # ==========================================================
-      # 9. Copy compiled EA back to workspace
+      # 10. Copy compiled EA back to workspace
       # ==========================================================
       - name: Collect compiled EA
         if: always()
@@ -398,7 +481,7 @@ jobs:
           }
 
       # ==========================================================
-      # 10. Upload compiled EA + log
+      # 11. Upload compiled EA + log
       # ==========================================================
       - name: Upload compilation artifacts
         if: always()
@@ -411,7 +494,7 @@ jobs:
           if-no-files-found: warn
 
       # ==========================================================
-      # 11. Final summary
+      # 12. Final summary
       # ==========================================================
       - name: Compilation summary
         if: always()
