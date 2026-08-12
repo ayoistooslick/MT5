@@ -14,24 +14,26 @@ jobs:
     runs-on: windows-latest
 
     env:
-      MT5_INSTALL_DIR: C:\MT5
+      MT5_DIR: C:\MT5
+      EA_NAME: EA
 
     steps:
-      # ---------------------------------------------------------
+      # ==========================================================
       # 1. Checkout repository
-      # ---------------------------------------------------------
+      # ==========================================================
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ---------------------------------------------------------
+      # ==========================================================
       # 2. Download MetaTrader 5
-      # ---------------------------------------------------------
+      # ==========================================================
       - name: Download MetaTrader 5
         shell: pwsh
         run: |
           $installer = "$env:RUNNER_TEMP\mt5setup.exe"
 
           Write-Host "Downloading MetaTrader 5..."
+
           Invoke-WebRequest `
             -Uri "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe" `
             -OutFile $installer
@@ -41,87 +43,61 @@ jobs:
               exit 1
           }
 
-          Write-Host "Installer downloaded successfully."
-          Write-Host "Installer: $installer"
+          Write-Host "Download complete."
 
-      # ---------------------------------------------------------
+      # ==========================================================
       # 3. Install MetaTrader 5
-      # ---------------------------------------------------------
+      # ==========================================================
       - name: Install MetaTrader 5
         shell: pwsh
         run: |
           $installer = "$env:RUNNER_TEMP\mt5setup.exe"
 
           Write-Host "Installing MetaTrader 5..."
-          Write-Host "Install directory: $env:MT5_INSTALL_DIR"
 
           Start-Process `
             -FilePath $installer `
-            -ArgumentList "/auto", "/path:`"$env:MT5_INSTALL_DIR`"" `
+            -ArgumentList "/auto", "/path:`"$env:MT5_DIR`"" `
             -Wait `
             -NoNewWindow
 
           Start-Sleep -Seconds 5
 
-          if (!(Test-Path $env:MT5_INSTALL_DIR)) {
-              Write-Error "MetaTrader 5 installation directory was not created."
+          if (!(Test-Path $env:MT5_DIR)) {
+              Write-Error "MT5 installation directory was not created."
               exit 1
           }
 
-          Write-Host "MetaTrader 5 installation completed."
+          Write-Host "MT5 installed at:"
+          Write-Host $env:MT5_DIR
 
-      # ---------------------------------------------------------
+      # ==========================================================
       # 4. Find MetaEditor
-      # ---------------------------------------------------------
+      # ==========================================================
       - name: Find MetaEditor
         shell: pwsh
         run: |
-          Write-Host "Searching for MetaEditor..."
+          Write-Host "Searching for MetaEditor64.exe..."
 
-          $locations = @(
-              "$env:MT5_INSTALL_DIR",
-              "C:\Program Files\MetaTrader 5",
-              "C:\Program Files (x86)\MetaTrader 5",
-              "C:\Program Files",
-              "C:\Program Files (x86)"
-          )
-
-          $metaEditor = $null
-
-          foreach ($location in $locations) {
-              if (Test-Path $location) {
-                  Write-Host "Searching: $location"
-
-                  $found = Get-ChildItem `
-                    -Path $location `
-                    -Filter "MetaEditor64.exe" `
-                    -Recurse `
-                    -File `
-                    -ErrorAction SilentlyContinue |
-                    Select-Object -First 1
-
-                  if ($found) {
-                      $metaEditor = $found.FullName
-                      break
-                  }
-              }
-          }
+          $metaEditor = Get-ChildItem `
+            -Path $env:MT5_DIR `
+            -Filter "MetaEditor64.exe" `
+            -Recurse `
+            -File `
+            -ErrorAction SilentlyContinue |
+            Select-Object -First 1
 
           if (!$metaEditor) {
-              Write-Host "MetaEditor64.exe not found."
-              Write-Host "Searching entire C:\ drive as fallback..."
+              Write-Host "MetaEditor not found inside MT5 directory."
+              Write-Host "Searching Program Files..."
 
-              $found = Get-ChildItem `
-                -Path "C:\" `
+              $metaEditor = Get-ChildItem `
+                -Path "C:\Program Files","C:\Program Files (x86)" `
                 -Filter "MetaEditor64.exe" `
                 -Recurse `
                 -File `
                 -ErrorAction SilentlyContinue |
                 Select-Object -First 1
-
-              if ($found) {
-                  $metaEditor = $found.FullName
-              }
           }
 
           if (!$metaEditor) {
@@ -131,14 +107,13 @@ jobs:
 
           Write-Host ""
           Write-Host "MetaEditor found:"
-          Write-Host $metaEditor
+          Write-Host $metaEditor.FullName
 
-          # Make it available to subsequent workflow steps.
-          "METAEDITOR=$metaEditor" >> $env:GITHUB_ENV
+          "METAEDITOR=$($metaEditor.FullName)" >> $env:GITHUB_ENV
 
-      # ---------------------------------------------------------
+      # ==========================================================
       # 5. Verify MetaEditor
-      # ---------------------------------------------------------
+      # ==========================================================
       - name: Verify MetaEditor
         shell: pwsh
         run: |
@@ -148,161 +123,263 @@ jobs:
           }
 
           if (!(Test-Path $env:METAEDITOR)) {
-              Write-Error "MetaEditor does not exist at:"
+              Write-Error "MetaEditor does not exist:"
               Write-Error $env:METAEDITOR
               exit 1
           }
 
-          Write-Host "MetaEditor:"
-          Write-Host $env:METAEDITOR
-
-          Write-Host ""
-          Write-Host "MetaEditor version information:"
-
           $version = (Get-Item $env:METAEDITOR).VersionInfo
 
-          Write-Host "Product: $($version.ProductName)"
-          Write-Host "Version: $($version.ProductVersion)"
-
-      # ---------------------------------------------------------
-      # 6. Compile EA
-      # ---------------------------------------------------------
-      - name: Compile EA
-        shell: pwsh
-        run: |
-          $source = Join-Path $env:GITHUB_WORKSPACE "EA.mq5"
-
-          Write-Host "========================================"
-          Write-Host "MT5 EA COMPILATION"
-          Write-Host "========================================"
-          Write-Host "Source:"
-          Write-Host $source
-          Write-Host ""
           Write-Host "MetaEditor:"
           Write-Host $env:METAEDITOR
-          Write-Host "========================================"
 
-          if (!(Test-Path $source)) {
-              Write-Error "EA.mq5 was not found:"
-              Write-Error $source
+          Write-Host ""
+          Write-Host "Version:"
+          Write-Host $version.ProductVersion
+
+      # ==========================================================
+      # 6. Create proper MQL5 workspace
+      # ==========================================================
+      - name: Prepare MQL5 workspace
+        shell: pwsh
+        run: |
+          $mql5 = Join-Path $env:MT5_DIR "MQL5"
+          $experts = Join-Path $mql5 "Experts"
+          $project = Join-Path $experts $env:EA_NAME
+
+          Write-Host "Creating MQL5 workspace..."
+
+          New-Item -ItemType Directory -Force -Path $mql5 | Out-Null
+          New-Item -ItemType Directory -Force -Path $experts | Out-Null
+          New-Item -ItemType Directory -Force -Path $project | Out-Null
+
+          # Copy the EA
+          Copy-Item `
+            "$env:GITHUB_WORKSPACE\EA.mq5" `
+            "$project\EA.mq5" `
+            -Force
+
+          # Copy Include directory
+          if (Test-Path "$env:GITHUB_WORKSPACE\Include") {
+              Copy-Item `
+                "$env:GITHUB_WORKSPACE\Include" `
+                "$project\Include" `
+                -Recurse `
+                -Force
+          }
+          else {
+              Write-Error "Include directory was not found."
               exit 1
           }
 
           Write-Host ""
-          Write-Host "Repository files:"
-          Get-ChildItem $env:GITHUB_WORKSPACE -Recurse -File |
+          Write-Host "MQL5 workspace:"
+          Write-Host $project
+
+          Write-Host ""
+          Write-Host "Workspace files:"
+
+          Get-ChildItem `
+            $project `
+            -Recurse `
+            -File |
             ForEach-Object {
               Write-Host $_.FullName
             }
 
-          Write-Host ""
-          Write-Host "Starting MetaEditor compiler..."
+          "MQL5_ROOT=$mql5" >> $env:GITHUB_ENV
+          "EA_PROJECT=$project" >> $env:GITHUB_ENV
 
-          & $env:METAEDITOR `
-            "/compile:$source" `
-            "/log"
-
-          $exitCode = $LASTEXITCODE
-
-          Write-Host ""
-          Write-Host "MetaEditor exit code: $exitCode"
-
-          # MetaEditor creates EA.log beside EA.mq5.
-          $log = Join-Path $env:GITHUB_WORKSPACE "EA.log"
+      # ==========================================================
+      # 7. Compile EA
+      # ==========================================================
+      - name: Compile EA
+        shell: pwsh
+        run: |
+          $source = Join-Path $env:EA_PROJECT "EA.mq5"
+          $log = Join-Path $env:EA_PROJECT "EA.log"
+          $ex5 = Join-Path $env:EA_PROJECT "EA.ex5"
 
           Write-Host ""
-          Write-Host "========================================"
+          Write-Host "=============================================="
+          Write-Host "MT5 EA COMPILATION"
+          Write-Host "=============================================="
+          Write-Host "MetaEditor:"
+          Write-Host $env:METAEDITOR
+          Write-Host ""
+          Write-Host "Source:"
+          Write-Host $source
+          Write-Host ""
+          Write-Host "MQL5 root:"
+          Write-Host $env:MQL5_ROOT
+          Write-Host "=============================================="
+
+          if (!(Test-Path $source)) {
+              Write-Error "EA.mq5 does not exist."
+              exit 1
+          }
+
+          # Remove old output if present
+          Remove-Item $log -Force -ErrorAction SilentlyContinue
+          Remove-Item $ex5 -Force -ErrorAction SilentlyContinue
+
+          Write-Host ""
+          Write-Host "Running MetaEditor..."
+
+          # Use cmd.exe so Windows handles the MetaEditor
+          # command-line invocation exactly like a normal
+          # Windows command.
+          $arguments = "/portable /compile:`"$source`" /include:`"$env:MQL5_ROOT`" /log"
+
+          Write-Host ""
+          Write-Host "Arguments:"
+          Write-Host $arguments
+          Write-Host ""
+
+          $process = Start-Process `
+            -FilePath $env:METAEDITOR `
+            -ArgumentList $arguments `
+            -WorkingDirectory $env:MT5_DIR `
+            -Wait `
+            -PassThru `
+            -NoNewWindow
+
+          Write-Host ""
+          Write-Host "MetaEditor process exit code:"
+          Write-Host $process.ExitCode
+
+          # Give MetaEditor a moment to finish writing the log.
+          Start-Sleep -Seconds 3
+
+          Write-Host ""
+          Write-Host "=============================================="
           Write-Host "COMPILATION LOG"
-          Write-Host "========================================"
+          Write-Host "=============================================="
 
           if (Test-Path $log) {
+              Write-Host ""
               Get-Content $log
           }
           else {
-              Write-Host "EA.log was not found beside EA.mq5."
+              Write-Host "EA.log was not created at:"
+              Write-Host $log
 
               Write-Host ""
-              Write-Host "Searching for .log files..."
+              Write-Host "Searching entire MT5 directory for logs..."
 
               $logs = Get-ChildItem `
-                -Path $env:GITHUB_WORKSPACE `
+                $env:MT5_DIR `
                 -Filter "*.log" `
                 -Recurse `
                 -File `
                 -ErrorAction SilentlyContinue
 
-              if ($logs.Count -eq 0) {
-                  Write-Host "No compilation logs found."
-              }
-              else {
+              if ($logs) {
                   foreach ($file in $logs) {
                       Write-Host ""
                       Write-Host "---------- $($file.FullName) ----------"
                       Get-Content $file.FullName
                   }
               }
+              else {
+                  Write-Host "No log files were found."
+              }
           }
 
           Write-Host ""
-          Write-Host "========================================"
-
-          # Check whether EX5 was generated.
-          $ex5 = Join-Path $env:GITHUB_WORKSPACE "EA.ex5"
+          Write-Host "=============================================="
+          Write-Host "OUTPUT CHECK"
+          Write-Host "=============================================="
 
           if (Test-Path $ex5) {
-              Write-Host "EA.ex5 was created successfully."
-              Write-Host "EX5 path: $ex5"
+              Write-Host ""
+              Write-Host "SUCCESS"
+              Write-Host "EA.ex5 was created:"
+              Write-Host $ex5
           }
           else {
+              Write-Host ""
               Write-Host "EA.ex5 was NOT created."
           }
 
-          if ($exitCode -ne 0) {
-              Write-Error "MetaEditor compilation failed."
-              exit $exitCode
-          }
-
+          # Do not rely only on MetaEditor's process exit code.
+          # The actual EX5 file is the important compilation result.
           if (!(Test-Path $ex5)) {
-              Write-Error "Compilation reported success but EA.ex5 was not found."
+              Write-Error "EA.ex5 was not produced. Compilation failed."
               exit 1
           }
 
           Write-Host ""
-          Write-Host "Compilation completed successfully."
+          Write-Host "EA compiled successfully."
 
-      # ---------------------------------------------------------
-      # 7. Upload compiler output
-      # ---------------------------------------------------------
+      # ==========================================================
+      # 8. Copy compiled EA back to workspace
+      # ==========================================================
+      - name: Collect compiled EA
+        if: always()
+        shell: pwsh
+        run: |
+          $ex5 = Join-Path $env:EA_PROJECT "EA.ex5"
+          $log = Join-Path $env:EA_PROJECT "EA.log"
+
+          if (Test-Path $ex5) {
+              Copy-Item `
+                $ex5 `
+                "$env:GITHUB_WORKSPACE\EA.ex5" `
+                -Force
+
+              Write-Host "Copied EA.ex5 to repository workspace."
+          }
+
+          if (Test-Path $log) {
+              Copy-Item `
+                $log `
+                "$env:GITHUB_WORKSPACE\EA.log" `
+                -Force
+
+              Write-Host "Copied EA.log to repository workspace."
+          }
+
+      # ==========================================================
+      # 9. Upload compiled EA + log
+      # ==========================================================
       - name: Upload compilation artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: MT5-compiled-EA
           path: |
-            EA.mq5
             EA.ex5
             EA.log
           if-no-files-found: warn
 
-      # ---------------------------------------------------------
-      # 8. GitHub Actions summary
-      # ---------------------------------------------------------
+      # ==========================================================
+      # 10. Final summary
+      # ==========================================================
       - name: Compilation summary
         if: always()
         shell: pwsh
         run: |
           Write-Host ""
-          Write-Host "========================================"
-          Write-Host "FINAL COMPILATION SUMMARY"
-          Write-Host "========================================"
+          Write-Host "=============================================="
+          Write-Host "FINAL SUMMARY"
+          Write-Host "=============================================="
 
           if (Test-Path "$env:GITHUB_WORKSPACE\EA.ex5") {
-              Write-Host "STATUS: EA.ex5 exists"
-              Write-Host "The EA was compiled."
+              Write-Host "COMPILED: YES"
+              Write-Host "EA.ex5 is available."
           }
           else {
-              Write-Host "STATUS: EA.ex5 does not exist"
-              Write-Host "The EA was not compiled successfully."
+              Write-Host "COMPILED: NO"
+              Write-Host "EA.ex5 was not produced."
           }
 
-          Write-Host "========================================"
+          if (Test-Path "$env:GITHUB_WORKSPACE\EA.log") {
+              Write-Host "LOG: YES"
+              Write-Host "EA.log is available."
+          }
+          else {
+              Write-Host "LOG: NO"
+          }
+
+          Write-Host "=============================================="
