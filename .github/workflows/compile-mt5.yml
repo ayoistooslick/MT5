@@ -1,4 +1,4 @@
- name: Compile MT5 EA
+name: Compile MT5 EA
 
 on:
   workflow_dispatch:
@@ -439,4 +439,4 @@ jobs:
               Write-Host "LOG: NO"
           }
 
-          Write-Host "==============================================" 
+          Write-Host "=============================================="
