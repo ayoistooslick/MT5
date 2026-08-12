@@ -62,6 +62,7 @@ void OnChartEventUI(const int id, const long &lparam, const double &dparam, cons
        {
           GlobalTradingEnabled = false;
           UpdateTradeButton();
+          ObjectSetInteger(0, BUTTON_NAME, OBJPROP_STATE, false);
           Print(LOG_PREFIX, "Trading remains OFF because Enable New Trading is disabled.");
           return;
        }

@@ -53,6 +53,8 @@ ENUM_TIMEFRAMES EntrySignalTimeframe()
    return PERIOD_M1; // M1 and AUTO both use the fastest closed signal bar.
 }
 
+bool IsNewAutoSignal(const string comment);
+
 //+------------------------------------------------------------------+
 //| Expert tick function                                             |
 //+------------------------------------------------------------------+
@@ -183,10 +185,46 @@ void ExecuteAutoMode()
    if(m15Buy.isValid && m15Buy.score > bestSignal.score) { bestSignal = m15Buy; bestType = ORDER_TYPE_BUY; risk = InpM15RiskPercent; tpRR = InpM15TPRR; comment = "AUTO_M15"; maxDaily = InpM15MaxTradesPerDay; }
    if(m15Sell.isValid && m15Sell.score > bestSignal.score) { bestSignal = m15Sell; bestType = ORDER_TYPE_SELL; risk = InpM15RiskPercent; tpRR = InpM15TPRR; comment = "AUTO_M15"; maxDaily = InpM15MaxTradesPerDay; }
 
-   if(bestType != -1 && !AreTradeLimitsReached(maxDaily))
+    if(bestType != -1 && !AreTradeLimitsReached(maxDaily) && IsNewAutoSignal(comment))
    {
       ProcessSignal(bestType, bestSignal, risk, tpRR, comment);
    }
+}
+
+//+------------------------------------------------------------------+
+//| Prevent AUTO from re-entering the same higher-timeframe signal   |
+//| on every subsequent M1 bar.                                     |
+//+------------------------------------------------------------------+
+bool IsNewAutoSignal(const string comment)
+{
+   ENUM_TIMEFRAMES signalTf = PERIOD_M1;
+   if(StringFind(comment, "M15") >= 0) signalTf = PERIOD_M15;
+   else if(StringFind(comment, "M5") >= 0) signalTf = PERIOD_M5;
+
+   datetime signalBar = iTime(_Symbol, signalTf, 0);
+   if(signalBar <= 0) return false;
+
+   static datetime lastM1SignalBar = 0;
+   static datetime lastM5SignalBar = 0;
+   static datetime lastM15SignalBar = 0;
+
+   if(signalTf == PERIOD_M1)
+   {
+      if(signalBar == lastM1SignalBar) return false;
+      lastM1SignalBar = signalBar;
+   }
+   else if(signalTf == PERIOD_M5)
+   {
+      if(signalBar == lastM5SignalBar) return false;
+      lastM5SignalBar = signalBar;
+   }
+   else
+   {
+      if(signalBar == lastM15SignalBar) return false;
+      lastM15SignalBar = signalBar;
+   }
+
+   return true;
 }
 
 //+------------------------------------------------------------------+
