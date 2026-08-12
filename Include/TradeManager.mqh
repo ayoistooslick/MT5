@@ -16,6 +16,12 @@ bool IsTradeRetcodeSuccessful(uint retcode)
           retcode == TRADE_RETCODE_DONE_PARTIAL || retcode == TRADE_RETCODE_NO_CHANGES;
 }
 
+bool IsOpenRetcodeSuccessful(uint retcode)
+{
+   return retcode == TRADE_RETCODE_DONE || retcode == TRADE_RETCODE_PLACED ||
+          retcode == TRADE_RETCODE_DONE_PARTIAL;
+}
+
 //+------------------------------------------------------------------+
 //| Open a position                                                  |
 //+------------------------------------------------------------------+
@@ -40,7 +46,7 @@ bool OpenPosition(ENUM_ORDER_TYPE type, double lot, double sl, double tp, string
    if(Trade.PositionOpen(_Symbol, type, lot, price, sl, tp, comment))
    {
       uint retcode = Trade.ResultRetcode();
-      if(IsTradeRetcodeSuccessful(retcode))
+      if(IsOpenRetcodeSuccessful(retcode))
       {
          Print(LOG_PREFIX, "Trade opened: ", comment, " Type: ", EnumToString(type), " Lot: ", lot, " SL: ", sl, " TP: ", tp);
          return true;

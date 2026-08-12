@@ -87,7 +87,7 @@ void OnTick()
    // 4. Spread check
    MqlTick tick;
    double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
-   if(point <= 0 || !SymbolInfoTick(_Symbol, tick) || tick.ask <= tick.bid) return;
+   if(point <= 0 || !SymbolInfoTick(_Symbol, tick) || tick.ask < tick.bid) return;
    double spread = (tick.ask - tick.bid) / point;
    if(spread > InpMaxSpread)
    {
@@ -198,7 +198,7 @@ void ProcessSignal(ENUM_ORDER_TYPE type, SignalResult &signal, double riskPercen
 
    MqlTick tick;
    double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
-   if(point <= 0 || !SymbolInfoTick(_Symbol, tick) || tick.ask <= tick.bid) return;
+   if(point <= 0 || !SymbolInfoTick(_Symbol, tick) || tick.ask < tick.bid) return;
 
    double spread = (tick.ask - tick.bid) / point;
    if(spread > InpMaxSpread)

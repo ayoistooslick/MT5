@@ -64,6 +64,7 @@ bool IsDailyLossLimitReached()
             profitToday += HistoryDealGetDouble(ticket, DEAL_PROFIT);
             profitToday += HistoryDealGetDouble(ticket, DEAL_COMMISSION);
             profitToday += HistoryDealGetDouble(ticket, DEAL_SWAP);
+            profitToday += HistoryDealGetDouble(ticket, DEAL_FEE);
          }
       }
    }
@@ -129,8 +130,9 @@ bool AreTradeLimitsReached(int maxDailyTrades)
       for(int i = 0; i < total; i++)
       {
          ulong ticket = HistoryDealGetTicket(i);
-         if(HistoryDealGetInteger(ticket, DEAL_MAGIC) == InpMagicNumber && 
-            HistoryDealGetInteger(ticket, DEAL_ENTRY) == DEAL_ENTRY_IN)
+          long entry = HistoryDealGetInteger(ticket, DEAL_ENTRY);
+          if(HistoryDealGetInteger(ticket, DEAL_MAGIC) == InpMagicNumber &&
+             (entry == DEAL_ENTRY_IN || entry == DEAL_ENTRY_INOUT))
          {
             tradesToday++;
          }
