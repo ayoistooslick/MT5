@@ -10,27 +10,31 @@
 //+------------------------------------------------------------------+
 double CalculateLotSize(double riskPercent, double slPoints)
 {
-   if(slPoints <= 0) return 0;
+   if(riskPercent <= 0 || slPoints <= 0) return 0;
 
-   double balance = AccountInfoDouble(ACCOUNT_BALANCE);
-   double riskMoney = balance * (riskPercent / 100.0);
+   double equity = AccountInfoDouble(ACCOUNT_EQUITY);
+   double riskMoney = equity * (riskPercent / 100.0);
    
-   double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+   double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE_LOSS);
+   if(tickValue <= 0)
+      tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
    double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
    double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   double minLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+   double maxLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
+   double lotStep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
 
-   if(tickValue == 0 || tickSize == 0 || point == 0) return 0;
+   if(riskMoney <= 0 || tickValue <= 0 || tickSize <= 0 || point <= 0 ||
+      minLot <= 0 || maxLot < minLot || lotStep <= 0) return 0;
 
    // Standard MQL5 formula for lot size based on risk
    // riskMoney = lot * (slPoints * point) * (tickValue / tickSize)
    double lotSize = riskMoney / (slPoints * point * (tickValue / tickSize));
    
-   // Normalize lot size
-   double minLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
-   double maxLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
-   double lotStep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
-
-   lotSize = MathFloor(lotSize / lotStep) * lotStep;
+   // Normalize down so the requested risk is never exceeded.
+   lotSize = MathMin(lotSize, maxLot);
+   lotSize = MathFloor(lotSize / lotStep + 1e-9) * lotStep;
+   lotSize = NormalizeDouble(lotSize, 8);
 
    if(lotSize < minLot) return 0; 
    if(lotSize > maxLot) lotSize = maxLot;
@@ -45,7 +49,6 @@ bool IsDailyLossLimitReached()
 {
    if(!InpEnableDailyLossLimit) return false;
 
-   double balance = AccountInfoDouble(ACCOUNT_BALANCE);
    double profitToday = 0;
    
    // Calculate today's profit from history
@@ -80,9 +83,13 @@ bool IsDailyLossLimitReached()
    }
 
    double totalProfitToday = profitToday + floatingProfit;
-   double maxLossMoney = balance * (InpMaxDailyLossPercent / 100.0);
+   double maxLossMoney = 0;
+   double percentLimit = AccountInfoDouble(ACCOUNT_BALANCE) * (InpMaxDailyLossPercent / 100.0);
+   if(percentLimit > 0) maxLossMoney = percentLimit;
+   if(InpMaxDailyLossMoney > 0 && (maxLossMoney == 0 || InpMaxDailyLossMoney < maxLossMoney))
+      maxLossMoney = InpMaxDailyLossMoney;
    
-   if(totalProfitToday < -maxLossMoney)
+   if(maxLossMoney > 0 && totalProfitToday <= -maxLossMoney)
    {
       return true;
    }
@@ -116,7 +123,7 @@ bool AreTradeLimitsReached(int maxDailyTrades)
    // 2. Max daily trades
    int tradesToday = 0;
    datetime today = iTime(_Symbol, PERIOD_D1, 0);
-   if(HistorySelect(today, TimeCurrent()))
+   if(today > 0 && HistorySelect(today, TimeCurrent()))
    {
       int total = HistoryDealsTotal();
       for(int i = 0; i < total; i++)
@@ -141,8 +148,11 @@ bool AreTradeLimitsReached(int maxDailyTrades)
 bool IsMarginSufficient(double lot, ENUM_ORDER_TYPE type)
 {
    double margin;
-   if(!OrderCalcMargin(type, _Symbol, lot, SymbolInfoDouble(_Symbol, SYMBOL_ASK), margin))
+   MqlTick tick;
+   if(!SymbolInfoTick(_Symbol, tick)) return false;
+   double price = (type == ORDER_TYPE_BUY) ? tick.ask : tick.bid;
+   if(price <= 0 || !OrderCalcMargin(type, _Symbol, lot, price, margin))
       return false;
    
-   return margin < AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+   return margin > 0 && margin < AccountInfoDouble(ACCOUNT_MARGIN_FREE);
 }

@@ -27,6 +27,13 @@ SignalResult EvaluateM15(bool bullish)
    double close1 = iClose(_Symbol, tf, 1);
    double open1 = iOpen(_Symbol, tf, 1);
 
+   if(!IsIndicatorReady(hEMA200_M15) || !IsIndicatorReady(hEMA50_M15) ||
+      close1 <= 0 || open1 <= 0)
+   {
+      result.reason = "M15 trend data not ready";
+      return result;
+   }
+
    bool trend_ok = bullish ? (close1 > ema200 && ema50 > ema200) : (close1 < ema200 && ema50 < ema200);
 
    if(!trend_ok)
@@ -40,6 +47,13 @@ SignalResult EvaluateM15(bool bullish)
    double ema21 = GetIndicatorValue(hEMA21_M15, 1);
    double rsi = GetIndicatorValue(hRSI_M15, 1);
    double atr = GetIndicatorValue(hATR_M15, 1);
+
+   if(!IsIndicatorReady(hEMA9_M15) || !IsIndicatorReady(hEMA21_M15) ||
+      !IsIndicatorReady(hRSI_M15) || !IsIndicatorReady(hATR_M15))
+   {
+      result.reason = "M15 indicator data not ready";
+      return result;
+   }
 
    bool structure = bullish ? IsBullishStructure(tf) : IsBearishStructure(tf);
    bool pullback = IsPriceInPullbackZone(tf, ema9, ema21, bullish);

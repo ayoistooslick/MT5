@@ -24,8 +24,15 @@ SignalResult CalculateScore(ENUM_TIMEFRAMES tf, bool bullish, double ema_short, 
    result.isValid = false;
    result.reason = "";
 
+   double close = iClose(_Symbol, tf, 1);
+   if(close <= 0 || ema_short <= 0 || ema_medium <= 0 || ema_trend <= 0 || atr <= 0)
+   {
+      result.reason = "Indicator or price data not ready";
+      return result;
+   }
+
    // Critical Conditions (Must pass to even consider the score)
-   bool ema_trend_ok = bullish ? (iClose(_Symbol, tf, 1) > ema_trend) : (iClose(_Symbol, tf, 1) < ema_trend);
+   bool ema_trend_ok = bullish ? (close > ema_trend) : (close < ema_trend);
    bool ema_cross_ok = bullish ? (ema_short > ema_medium) : (ema_short < ema_medium);
    
    if(!ema_trend_ok) { result.reason = "Trend EMA failure"; return result; }

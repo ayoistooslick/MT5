@@ -10,6 +10,13 @@ int hEMA9_M1, hEMA21_M1, hEMA200_M1, hRSI_M1, hATR_M1;
 int hEMA9_M5, hEMA21_M5, hEMA200_M5, hRSI_M5, hATR_M5;
 int hEMA9_M15, hEMA21_M15, hEMA50_M15, hEMA200_M15, hRSI_M15, hATR_M15;
 
+void DeinitIndicators();
+
+bool IsIndicatorReady(int handle, int shift = 1)
+{
+   return handle != INVALID_HANDLE && shift >= 0 && BarsCalculated(handle) > shift;
+}
+
 //+------------------------------------------------------------------+
 //| Initialize all required indicator handles                        |
 //+------------------------------------------------------------------+
@@ -46,6 +53,7 @@ bool InitIndicators()
       hEMA200_M15 == INVALID_HANDLE || hRSI_M15 == INVALID_HANDLE || hATR_M15 == INVALID_HANDLE)
    {
       Print(LOG_PREFIX, "Error creating indicator handles");
+      DeinitIndicators();
       return false;
    }
 
@@ -60,6 +68,9 @@ void DeinitIndicators()
    IndicatorRelease(hEMA9_M1); IndicatorRelease(hEMA21_M1); IndicatorRelease(hEMA200_M1); IndicatorRelease(hRSI_M1); IndicatorRelease(hATR_M1);
    IndicatorRelease(hEMA9_M5); IndicatorRelease(hEMA21_M5); IndicatorRelease(hEMA200_M5); IndicatorRelease(hRSI_M5); IndicatorRelease(hATR_M5);
    IndicatorRelease(hEMA9_M15); IndicatorRelease(hEMA21_M15); IndicatorRelease(hEMA50_M15); IndicatorRelease(hEMA200_M15); IndicatorRelease(hRSI_M15); IndicatorRelease(hATR_M15);
+   hEMA9_M1 = hEMA21_M1 = hEMA200_M1 = hRSI_M1 = hATR_M1 = INVALID_HANDLE;
+   hEMA9_M5 = hEMA21_M5 = hEMA200_M5 = hRSI_M5 = hATR_M5 = INVALID_HANDLE;
+   hEMA9_M15 = hEMA21_M15 = hEMA50_M15 = hEMA200_M15 = hRSI_M15 = hATR_M15 = INVALID_HANDLE;
 }
 
 //+------------------------------------------------------------------+

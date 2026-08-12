@@ -12,7 +12,9 @@
 //+------------------------------------------------------------------+
 void CreateTradeButton()
 {
-   if(ObjectCreate(0, BUTTON_NAME, OBJ_BUTTON, 0, 0, 0))
+   bool created = (ObjectFind(0, BUTTON_NAME) >= 0) ||
+                 ObjectCreate(0, BUTTON_NAME, OBJ_BUTTON, 0, 0, 0);
+   if(created)
    {
       ObjectSetInteger(0, BUTTON_NAME, OBJPROP_XDISTANCE, 20);
       ObjectSetInteger(0, BUTTON_NAME, OBJPROP_YDISTANCE, 20);
@@ -26,6 +28,10 @@ void CreateTradeButton()
       
       UpdateTradeButton();
    }
+   else
+   {
+      Print(LOG_PREFIX, "Failed to create trading status button. Error: ", GetLastError());
+   }
 }
 
 //+------------------------------------------------------------------+
@@ -33,7 +39,7 @@ void CreateTradeButton()
 //+------------------------------------------------------------------+
 void UpdateTradeButton()
 {
-   if(GlobalTradingEnabled)
+   if(GlobalTradingEnabled && InpEnableTrading)
    {
       ObjectSetString(0, BUTTON_NAME, OBJPROP_TEXT, "TRADING ON");
       ObjectSetInteger(0, BUTTON_NAME, OBJPROP_BGCOLOR, clrGreen);
@@ -52,6 +58,13 @@ void OnChartEventUI(const int id, const long &lparam, const double &dparam, cons
 {
    if(id == CHARTEVENT_OBJECT_CLICK && sparam == BUTTON_NAME)
    {
+       if(!InpEnableTrading)
+       {
+          GlobalTradingEnabled = false;
+          UpdateTradeButton();
+          Print(LOG_PREFIX, "Trading remains OFF because Enable New Trading is disabled.");
+          return;
+       }
       GlobalTradingEnabled = !GlobalTradingEnabled;
       UpdateTradeButton();
       Print(LOG_PREFIX, "Trading toggled: ", GlobalTradingEnabled ? "ON" : "OFF");

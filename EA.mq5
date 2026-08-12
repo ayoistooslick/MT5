@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, MetaTrader 5 EA"
 #property link      "https://www.mql5.com"
-#property version   EA_VERSION
+#property version   "1.00"
 #property strict
 
 #include "Include/Config.mqh"
@@ -44,6 +44,16 @@ void OnDeinit(const int reason)
 }
 
 //+------------------------------------------------------------------+
+//| Timeframe that drives entry evaluation                            |
+//+------------------------------------------------------------------+
+ENUM_TIMEFRAMES EntrySignalTimeframe()
+{
+   if(InpTradingMode == MODE_M5) return PERIOD_M5;
+   if(InpTradingMode == MODE_M15) return PERIOD_M15;
+   return PERIOD_M1; // M1 and AUTO both use the fastest closed signal bar.
+}
+
+//+------------------------------------------------------------------+
 //| Expert tick function                                             |
 //+------------------------------------------------------------------+
 void OnTick()
@@ -57,19 +67,28 @@ void OnTick()
    {
       // We don't disable GlobalTradingEnabled here to allow it to reset next day, 
       // but we return early.
-      static bool lossLogged = false;
-      if(!lossLogged) { Print(LOG_PREFIX, "Daily loss limit reached. No new trades."); lossLogged = true; }
+      static datetime lossLoggedDay = 0;
+      datetime today = iTime(_Symbol, PERIOD_D1, 0);
+      if(today != lossLoggedDay)
+      {
+         Print(LOG_PREFIX, "Daily loss limit reached. No new trades.");
+         lossLoggedDay = today;
+      }
       return; 
    }
 
    // 3. New bar detection for signal generation
    static datetime lastBarTime = 0;
-   datetime currentBarTime = iTime(_Symbol, _Period, 0);
+   datetime currentBarTime = iTime(_Symbol, EntrySignalTimeframe(), 0);
+   if(currentBarTime <= 0) return;
    if(currentBarTime == lastBarTime) return;
    lastBarTime = currentBarTime;
 
    // 4. Spread check
-   double spread = SymbolInfoInteger(_Symbol, SYMBOL_SPREAD);
+   MqlTick tick;
+   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   if(point <= 0 || !SymbolInfoTick(_Symbol, tick) || tick.ask <= tick.bid) return;
+   double spread = (tick.ask - tick.bid) / point;
    if(spread > InpMaxSpread)
    {
       Print(LOG_PREFIX, "Spread too high: ", spread, " > ", InpMaxSpread);
@@ -175,21 +194,51 @@ void ExecuteAutoMode()
 //+------------------------------------------------------------------+
 void ProcessSignal(ENUM_ORDER_TYPE type, SignalResult &signal, double riskPercent, double tpRR, string comment)
 {
+   if(!signal.isValid || tpRR <= 0) return;
+
+   MqlTick tick;
+   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   if(point <= 0 || !SymbolInfoTick(_Symbol, tick) || tick.ask <= tick.bid) return;
+
+   double spread = (tick.ask - tick.bid) / point;
+   if(spread > InpMaxSpread)
+   {
+      Print(LOG_PREFIX, "Signal rejected: spread too high at execution time.");
+      return;
+   }
+
    // Calculate ATR for SL
    double atr = 0;
-   if(StringFind(comment, "M1") >= 0) atr = GetIndicatorValue(hATR_M1, 1);
+   if(StringFind(comment, "M15") >= 0) atr = GetIndicatorValue(hATR_M15, 1);
    else if(StringFind(comment, "M5") >= 0) atr = GetIndicatorValue(hATR_M5, 1);
-   else if(StringFind(comment, "M15") >= 0) atr = GetIndicatorValue(hATR_M15, 1);
+   else if(StringFind(comment, "M1") >= 0) atr = GetIndicatorValue(hATR_M1, 1);
 
-   double slPoints = (atr > 0) ? (atr * 2.0 / _Point) : 200; // Default 20 pips if ATR fails
-   double sl = (type == ORDER_TYPE_BUY) ? SymbolInfoDouble(_Symbol, SYMBOL_BID) - slPoints * _Point : SymbolInfoDouble(_Symbol, SYMBOL_ASK) + slPoints * _Point;
-   double tp = (type == ORDER_TYPE_BUY) ? SymbolInfoDouble(_Symbol, SYMBOL_BID) + slPoints * tpRR * _Point : SymbolInfoDouble(_Symbol, SYMBOL_ASK) - slPoints * tpRR * _Point;
+   if(atr <= 0) return;
 
+   // Build both SL and TP from the same current entry price.  The
+   // position size is then based on this actual initial SL distance.
+   double entry = (type == ORDER_TYPE_BUY) ? tick.ask : tick.bid;
+   double sl = (type == ORDER_TYPE_BUY) ? entry - atr * 2.0 : entry + atr * 2.0;
+   entry = NormalizeDouble(entry, _Digits);
+   sl = NormalizeDouble(sl, _Digits);
+   double initialRisk = MathAbs(entry - sl);
+   if(initialRisk <= 0) return;
+
+   double tp = (type == ORDER_TYPE_BUY) ? entry + initialRisk * tpRR : entry - initialRisk * tpRR;
+   tp = NormalizeDouble(tp, _Digits);
+   if(!AreStopsValid(type, sl, tp, tick))
+   {
+      Print(LOG_PREFIX, "Signal rejected: SL/TP violates broker stop or freeze levels.");
+      return;
+   }
+
+   double slPoints = initialRisk / point;
    double lot = CalculateLotSize(riskPercent, slPoints);
    
    if(lot > 0 && IsMarginSufficient(lot, type))
    {
-      OpenPosition(type, lot, sl, tp, comment);
+      string tradeComment = comment + "|R=" + DoubleToString(initialRisk, _Digits);
+      OpenPosition(type, lot, sl, tp, tradeComment);
    }
    else
    {

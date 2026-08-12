@@ -56,6 +56,7 @@ input group "=== RISK & PROTECTION ==="
 input double InpMaxSpread = 20;                    // Max Spread (Points)
 input bool InpEnableDailyLossLimit = true;         // Enable Daily Loss Limit
 input double InpMaxDailyLossPercent = 5.0;         // Max Daily Loss (%)
+input double InpMaxDailyLossMoney = 0.0;           // Max Daily Loss (Money, 0 = disabled)
 input int InpMaxSimultaneousPositions = 3;         // Max Simultaneous Positions
 input bool InpOnePositionPerSymbol = true;         // One Position Per Symbol
 
