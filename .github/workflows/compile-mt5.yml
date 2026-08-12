@@ -1,0 +1,100 @@
+name: Compile MT5 EA
+
+on:
+  workflow_dispatch:
+
+jobs:
+  compile:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download MetaTrader 5
+        shell: powershell
+        run: |
+          $url = "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe"
+          Invoke-WebRequest -Uri $url -OutFile "$env:TEMP\mt5setup.exe"
+
+      - name: Install MetaTrader 5
+        shell: powershell
+        run: |
+          Start-Process `
+            -FilePath "$env:TEMP\mt5setup.exe" `
+            -ArgumentList "/auto" `
+            -Wait
+
+      - name: Find MetaEditor
+        shell: powershell
+        run: |
+          $metaEditor = Get-ChildItem `
+            -Path "C:\Program Files" `
+            -Filter "metaeditor64.exe" `
+            -Recurse `
+            -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+
+          if (-not $metaEditor) {
+            Write-Error "MetaEditor was not found."
+            exit 1
+          }
+
+          "METAEDITOR=$($metaEditor.FullName)" >> $env:GITHUB_ENV
+
+          Write-Host "Found MetaEditor:"
+          Write-Host $metaEditor.FullName
+
+      - name: Compile EA
+        shell: powershell
+        run: |
+          $source = Join-Path $env:GITHUB_WORKSPACE "EA.mq5"
+
+          if (-not (Test-Path $source)) {
+            Write-Error "EA.mq5 was not found."
+            exit 1
+          }
+
+          Write-Host "Compiling:"
+          Write-Host $source
+
+          & "$env:METAEDITOR" `
+            "/compile:$source" `
+            "/log"
+
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "MetaEditor compilation process failed."
+            exit $LASTEXITCODE
+          }
+
+      - name: Show compilation log
+        shell: powershell
+        run: |
+          $log = Join-Path $env:GITHUB_WORKSPACE "EA.log"
+
+          if (Test-Path $log) {
+            Get-Content $log
+          } else {
+            Write-Warning "Compilation log was not found at $log"
+          }
+
+      - name: Verify EX5
+        shell: powershell
+        run: |
+          $ex5 = Join-Path $env:GITHUB_WORKSPACE "EA.ex5"
+
+          if (-not (Test-Path $ex5)) {
+            Write-Error "EA.ex5 was not created. Compilation failed."
+            exit 1
+          }
+
+          Write-Host "EA.ex5 successfully created."
+          Get-Item $ex5
+
+      - name: Upload compiled EA
+        uses: actions/upload-artifact@v4
+        with:
+          name: MT5-EA-build
+          path: |
+            EA.ex5
+            EA.log
