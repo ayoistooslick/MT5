@@ -61,7 +61,7 @@ SignalResult EvaluateM5(bool bullish)
    bool confirmation = bullish ? (close1 > open1) : (close1 < open1);
 
    // 3. Scoring
-   result = CalculateScore(tf, bullish, ema9, ema21, ema200, rsi, atr, structure, pullback, confirmation);
+    result = CalculateScore(tf, bullish, ema9, ema21, ema200, rsi, atr, structure, pullback, confirmation, true);
 
    if(result.isValid && result.score < InpM5MinScore)
    {

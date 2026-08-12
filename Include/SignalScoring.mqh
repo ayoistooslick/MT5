@@ -16,7 +16,7 @@ struct SignalResult
 //+------------------------------------------------------------------+
 //| Calculate Signal Score for a given timeframe and direction      |
 //+------------------------------------------------------------------+
-SignalResult CalculateScore(ENUM_TIMEFRAMES tf, bool bullish, double ema_short, double ema_medium, double ema_trend, double rsi, double atr, bool structure, bool pullback, bool confirmation)
+SignalResult CalculateScore(ENUM_TIMEFRAMES tf, bool bullish, double ema_short, double ema_medium, double ema_trend, double rsi, double atr, bool structure, bool pullback, bool confirmation, bool trend_alignment)
 {
    SignalResult result;
    result.score = 0;
@@ -39,6 +39,11 @@ SignalResult CalculateScore(ENUM_TIMEFRAMES tf, bool bullish, double ema_short, 
    if(!ema_cross_ok) { result.reason = "EMA Cross failure"; return result; }
    if(!structure) { result.reason = "Market Structure failure"; return result; }
    if(!confirmation) { result.reason = "Confirmation candle failure"; return result; }
+   if((bullish && rsi <= 50) || (!bullish && rsi >= 50))
+   {
+      result.reason = "RSI confirmation failure";
+      return result;
+   }
 
    result.criticalPassed = true;
 
@@ -46,13 +51,10 @@ SignalResult CalculateScore(ENUM_TIMEFRAMES tf, bool bullish, double ema_short, 
    int score = 40; // Base score for passing criticals
 
    // Trend Alignment (20 points)
-   // We'll check this against higher timeframes in the strategy engines, 
-   // but for the scoring engine itself, we can reward strong local trend.
-   score += 20;
+   if(trend_alignment) score += 20;
 
    // RSI Confirmation (15 points)
-   if(bullish && rsi > 50) score += 15;
-   else if(!bullish && rsi < 50) score += 15;
+   score += 15;
 
    // Pullback Quality (15 points)
    if(pullback) score += 15;
