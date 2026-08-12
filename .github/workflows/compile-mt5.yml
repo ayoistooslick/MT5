@@ -1,4 +1,4 @@
-name: Compile MT5 EA
+ name: Compile MT5 EA
 
 on:
   workflow_dispatch:
@@ -191,7 +191,64 @@ jobs:
           "EA_PROJECT=$project" >> $env:GITHUB_ENV
 
       # ==========================================================
-      # 7. Compile EA
+      # 7. Install the MQL5 Standard Library Trade classes
+      # ==========================================================
+      - name: Install MQL5 Standard Library Trade classes
+        shell: pwsh
+        run: |
+          $include = Join-Path $env:MT5_DIR "MQL5\Include"
+          $trade = Join-Path $include "Trade"
+          $revision = "d913f3880a6120e7f8d276b97e819c3e7d97e95b"
+          $baseUrl = "https://raw.githubusercontent.com/gsemet/mt5-include/$revision"
+
+          # The terminal image used by this runner does not ship with the
+          # MetaQuotes MQL5 Standard Library. Download the unmodified
+          # Standard Library files needed by the Trade classes into the
+          # location searched by #include <Trade/Trade.mqh>.
+          $files = @(
+              @{ Relative = "Object.mqh"; Destination = $include },
+              @{ Relative = "StdLibErr.mqh"; Destination = $include },
+              @{ Relative = "Trade/AccountInfo.mqh"; Destination = $trade },
+              @{ Relative = "Trade/DealInfo.mqh"; Destination = $trade },
+              @{ Relative = "Trade/HistoryOrderInfo.mqh"; Destination = $trade },
+              @{ Relative = "Trade/OrderInfo.mqh"; Destination = $trade },
+              @{ Relative = "Trade/PositionInfo.mqh"; Destination = $trade },
+              @{ Relative = "Trade/SymbolInfo.mqh"; Destination = $trade },
+              @{ Relative = "Trade/TerminalInfo.mqh"; Destination = $trade },
+              @{ Relative = "Trade/Trade.mqh"; Destination = $trade }
+          )
+
+          New-Item -ItemType Directory -Force -Path $trade | Out-Null
+
+          foreach ($file in $files) {
+              $destination = Join-Path $file.Destination (Split-Path $file.Relative -Leaf)
+              $url = "$baseUrl/$($file.Relative)"
+
+              Write-Host "Downloading $($file.Relative)..."
+              Invoke-WebRequest `
+                -Uri $url `
+                -OutFile $destination `
+                -UseBasicParsing
+
+              if (!(Test-Path $destination) -or (Get-Item $destination).Length -eq 0) {
+                  Write-Error "Failed to install $($file.Relative)."
+                  exit 1
+              }
+          }
+
+          $tradeHeader = Join-Path $trade "Trade.mqh"
+          if (!(Test-Path $tradeHeader)) {
+              Write-Error "MQL5 Standard Library header is missing: $tradeHeader"
+              exit 1
+          }
+
+          Write-Host "Installed MQL5 Standard Library Trade classes:"
+          Get-ChildItem $trade -File | ForEach-Object {
+              Write-Host $_.FullName
+          }
+
+      # ==========================================================
+      # 8. Compile EA
       # ==========================================================
       - name: Compile EA
         shell: pwsh
@@ -313,7 +370,7 @@ jobs:
           Write-Host "EA compiled successfully."
 
       # ==========================================================
-      # 8. Copy compiled EA back to workspace
+      # 9. Copy compiled EA back to workspace
       # ==========================================================
       - name: Collect compiled EA
         if: always()
@@ -341,7 +398,7 @@ jobs:
           }
 
       # ==========================================================
-      # 9. Upload compiled EA + log
+      # 10. Upload compiled EA + log
       # ==========================================================
       - name: Upload compilation artifacts
         if: always()
@@ -354,7 +411,7 @@ jobs:
           if-no-files-found: warn
 
       # ==========================================================
-      # 10. Final summary
+      # 11. Final summary
       # ==========================================================
       - name: Compilation summary
         if: always()
@@ -382,4 +439,4 @@ jobs:
               Write-Host "LOG: NO"
           }
 
-          Write-Host "=============================================="
+          Write-Host "==============================================" 
