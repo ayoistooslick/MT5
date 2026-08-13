@@ -121,12 +121,17 @@ bool BackendBridgeHttpRequest(const string method,
    if(StringLen(BackendAPIKey) > 0)
       headers += "Authorization: Bearer " + BackendAPIKey + "\r\n";
 
-   char requestData[];
-   int requestSize = 0;
+   uchar requestData[];
    if(StringLen(payload) > 0)
-      requestSize = StringToCharArray(payload, requestData, 0, WHOLE_ARRAY, CP_UTF8) - 1;
+   {
+      int requestBytes = StringToCharArray(
+         payload, requestData, 0, WHOLE_ARRAY, CP_UTF8
+      );
+      if(requestBytes > 0)
+         ArrayResize(requestData, requestBytes - 1);
+   }
 
-   char result[];
+   uchar result[];
    string resultHeaders = "";
    ResetLastError();
 
@@ -135,7 +140,6 @@ bool BackendBridgeHttpRequest(const string method,
                            headers,
                            BACKEND_HTTP_TIMEOUT_MS,
                            requestData,
-                           requestSize,
                            result,
                            resultHeaders);
    int requestError = GetLastError();
@@ -179,7 +183,7 @@ string BackendBridgeBuildSignalPayload(const ENUM_ORDER_TYPE type,
 {
    return "{" +
       "\"type\":\"signal\"," +
-      "\"timestamp\":" + LongToString((long)TimeCurrent()) + "," +
+      "\"timestamp\":" + (string)(long)TimeCurrent() + "," +
       "\"symbol\":\"" + BackendBridgeJsonEscape(_Symbol) + "\"," +
       "\"timeframe\":\"" + BackendBridgeSignalTimeframe(comment) + "\"," +
       "\"direction\":\"" + BackendBridgeOrderDirection(type) + "\"," +
@@ -267,7 +271,7 @@ string BackendBridgeBuildPositionsPayload()
       ENUM_POSITION_TYPE positionType =
          (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
       positions += "{" +
-         "\"ticket\":\"" + LongToString((long)ticket) + "\"," +
+         "\"ticket\":\"" + (string)ticket + "\"," +
          "\"symbol\":\"" + BackendBridgeJsonEscape(PositionGetString(POSITION_SYMBOL)) + "\"," +
          "\"direction\":\"" + BackendBridgePositionDirection(positionType) + "\"," +
          "\"volume\":" + DoubleToString(PositionGetDouble(POSITION_VOLUME), 8) + "," +
@@ -277,23 +281,23 @@ string BackendBridgeBuildPositionsPayload()
          "\"take_profit\":" + DoubleToString(PositionGetDouble(POSITION_TP), _Digits) + "," +
          "\"profit\":" + DoubleToString(PositionGetDouble(POSITION_PROFIT), 2) + "," +
          "\"swap\":" + DoubleToString(PositionGetDouble(POSITION_SWAP), 2) + "," +
-         "\"magic\":" + LongToString(PositionGetInteger(POSITION_MAGIC)) + "," +
+         "\"magic\":" + (string)PositionGetInteger(POSITION_MAGIC) + "," +
          "\"comment\":\"" + BackendBridgeJsonEscape(PositionGetString(POSITION_COMMENT)) + "\"," +
-         "\"opened_at\":" + LongToString(PositionGetInteger(POSITION_TIME)) +
+         "\"opened_at\":" + (string)PositionGetInteger(POSITION_TIME) +
          "}";
    }
    positions += "]";
 
    return "{" +
       "\"type\":\"positions\"," +
-      "\"timestamp\":" + LongToString((long)TimeCurrent()) + "," +
+      "\"timestamp\":" + (string)(long)TimeCurrent() + "," +
       "\"symbol\":\"" + BackendBridgeJsonEscape(_Symbol) + "\"," +
       "\"account\":{" +
-         "\"login\":" + LongToString(AccountInfoInteger(ACCOUNT_LOGIN)) + "," +
+         "\"login\":" + (string)AccountInfoInteger(ACCOUNT_LOGIN) + "," +
          "\"balance\":" + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2) + "," +
          "\"equity\":" + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2) + "," +
          "\"margin\":" + DoubleToString(AccountInfoDouble(ACCOUNT_MARGIN), 2) + "," +
-         "\"free_margin\":" + DoubleToString(AccountInfoDouble(ACCOUNT_FREEMARGIN), 2) +
+         "\"free_margin\":" + DoubleToString(AccountInfoDouble(ACCOUNT_MARGIN_FREE), 2) +
       "}," +
       "\"positions\":" + positions +
       "}";
@@ -312,12 +316,12 @@ string BackendBridgeBuildCandle(const ENUM_TIMEFRAMES timeframe,
    return "{" +
       "\"timeframe\":\"" + timeframeName + "\"," +
       "\"available\":true," +
-      "\"time\":" + LongToString((long)candleTime) + "," +
+      "\"time\":" + (string)(long)candleTime + "," +
       "\"open\":" + DoubleToString(iOpen(_Symbol, timeframe, 1), _Digits) + "," +
       "\"high\":" + DoubleToString(iHigh(_Symbol, timeframe, 1), _Digits) + "," +
       "\"low\":" + DoubleToString(iLow(_Symbol, timeframe, 1), _Digits) + "," +
       "\"close\":" + DoubleToString(iClose(_Symbol, timeframe, 1), _Digits) + "," +
-      "\"volume\":" + LongToString(iVolume(_Symbol, timeframe, 1)) +
+      "\"volume\":" + (string)iVolume(_Symbol, timeframe, 1) +
       "}";
 }
 
@@ -334,7 +338,7 @@ string BackendBridgeBuildMarketPayload()
 
    return "{" +
       "\"type\":\"market\"," +
-      "\"timestamp\":" + LongToString((long)TimeCurrent()) + "," +
+      "\"timestamp\":" + (string)(long)TimeCurrent() + "," +
       "\"symbol\":\"" + BackendBridgeJsonEscape(_Symbol) + "\"," +
       "\"digits\":" + IntegerToString(_Digits) + "," +
       "\"point\":" + DoubleToString(_Point, 10) + "," +
@@ -375,9 +379,9 @@ void BackendBridgeSendHeartbeat()
 {
    string payload = "{" +
       "\"type\":\"heartbeat\"," +
-      "\"timestamp\":" + LongToString((long)TimeCurrent()) + "," +
+      "\"timestamp\":" + (string)(long)TimeCurrent() + "," +
       "\"symbol\":\"" + BackendBridgeJsonEscape(_Symbol) + "\"," +
-      "\"account_login\":" + LongToString(AccountInfoInteger(ACCOUNT_LOGIN)) + "," +
+      "\"account_login\":" + (string)AccountInfoInteger(ACCOUNT_LOGIN) + "," +
       "\"magic\":" + IntegerToString(InpMagicNumber) + "," +
       "\"trading_enabled\":" + BackendBridgeJsonBool(
          GlobalTradingEnabled && InpEnableTrading
@@ -385,9 +389,7 @@ void BackendBridgeSendHeartbeat()
       "\"backend_configured\":" + BackendBridgeJsonBool(
          BackendBridgeIsConfigured()
       ) + "," +
-      "\"terminal_build\":" + LongToString(
-         TerminalInfoInteger(TERMINAL_BUILD)
-      ) +
+      "\"terminal_build\":" + (string)TerminalInfoInteger(TERMINAL_BUILD) +
       "}";
 
    BackendBridgePost("/api/v1/ea/heartbeat", payload);

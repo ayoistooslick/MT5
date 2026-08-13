@@ -1,0 +1,145 @@
+Fix the existing BackendBridge.mqh so it compiles successfully with the exact MetaTrader 5 / MQL5 compiler used by this repository.
+
+IMPORTANT:
+- Do NOT redesign the backend bridge.
+- Do NOT change the trading strategy.
+- Do NOT change signal generation, risk management, entries, exits, indicators, or UI.
+- Do NOT modify the GitHub Actions workflow.
+- Preserve the existing backend API contract and endpoint names.
+- Only repair MQL5 compatibility/compiler errors in BackendBridge.mqh.
+- The final implementation must remain usable with a Node.js backend deployed on Render.
+
+Current compiler errors:
+
+1. WebRequest() at BackendBridge.mqh line 133 has the wrong parameter count.
+
+The compiler reports only these valid overloads:
+
+int WebRequest(
+   const string,
+   const string,
+   const string,
+   const string,
+   int,
+   const uchar&[],
+   int,
+   uchar&[],
+   string&
+);
+
+int WebRequest(
+   const string,
+   const string,
+   const string,
+   int,
+   const uchar&[],
+   uchar&[],
+   string&
+);
+
+Use the correct MQL5 overload and construct the request headers/body correctly.
+
+For JSON POST requests, use the appropriate overload with:
+- method = "POST"
+- URL
+- cookie/header arguments in the correct positions
+- timeout
+- uchar request body
+- uchar response buffer
+- response headers
+
+Do not invent another WebRequest signature.
+
+2. Replace EVERY usage of LongToString().
+
+LongToString() is not an MQL5 function and causes cascading parser errors.
+
+Use valid MQL5 conversions instead:
+- For long/ulong values that need JSON/string output, use `(string)value` where valid.
+- For integer values, use IntegerToString() when appropriate.
+- Preserve the numeric JSON representation. Do not accidentally turn numeric JSON values into quoted strings.
+
+3. After fixing the primary errors, inspect the entire BackendBridge.mqh for additional MQL5 syntax/API incompatibilities caused by the same implementation.
+
+Pay particular attention to:
+- AccountInfoInteger()
+- PositionGetInteger()
+- TerminalInfoInteger()
+- iTime()
+- iVolume()
+- WebRequest()
+- uchar/char array conversion
+- JSON string concatenation
+- URL query-string construction
+
+4. Replace deprecated APIs only where it is safe and directly related to compatibility:
+- ACCOUNT_FREEMARGIN -> ACCOUNT_MARGIN_FREE
+
+Do not make unrelated changes.
+
+5. Keep the existing API contract exactly:
+
+POST /api/v1/ea/signals
+POST /api/v1/ea/positions
+POST /api/v1/ea/market
+POST /api/v1/ea/heartbeat
+GET /api/v1/ea/commands?symbol=SYMBOL&magic=MAGIC
+
+Authentication:
+Authorization: Bearer <BackendAPIKey>
+
+6. Preserve the existing behavior:
+- BackendURL empty = bridge disabled
+- BackendAPIKey comes from EA input
+- signals are queued and sent from OnTimer()
+- heartbeat every 60 seconds
+- positions/market data every 60 seconds
+- command polling every 30 seconds
+- HTTP timeout remains 2 seconds
+- HTTP failures must never stop trading
+- no external DLLs
+- no credentials hardcoded
+
+7. IMPORTANT COMPILATION REQUIREMENT
+
+Do not merely perform static checks.
+
+Inspect the actual MQL5 code and make the bridge compatible with the compiler.
+
+The repository's GitHub Actions workflow uses:
+MetaEditor 5.0.0.6111
+
+The final BackendBridge.mqh must compile under that compiler.
+
+Before finishing:
+- search the entire BackendBridge.mqh for every LongToString occurrence and remove all of them
+- verify every WebRequest() call has exactly one of the valid signatures above
+- verify all string concatenations use valid MQL5 syntax
+- verify all numeric values intended as JSON numbers remain numeric
+- verify no undefined helper functions remain
+
+Only modify:
+Include/BackendBridge.mqh
+
+Do not modify:
+EA.mq5
+Include/Config.mqh
+Include/Indicators.mqh
+Include/MarketStructure.mqh
+Include/SignalScoring.mqh
+Include/RiskManager.mqh
+Include/TradeManager.mqh
+Include/StrategyM1.mqh
+Include/StrategyM5.mqh
+Include/StrategyM15.mqh
+Include/UI.mqh
+.github/workflows/compile-mt5.yml
+
+At the end, report:
+1. exact functions repaired
+2. exact MQL5 incompatibilities fixed
+3. confirmation that all LongToString() calls are gone
+4. confirmation that WebRequest() uses a valid overload
+5. files changed
+
+Do not claim compilation succeeded unless the code was actually compiled with MetaEditor.
