@@ -23,6 +23,10 @@ input bool InpEnableTrading = true;                 // Enable New Trading
 input int InpMagicNumber = 123456;                 // Magic Number
 input string InpEAComment = "MT5_MTF_EA";          // EA Comment
 
+input group "=== BACKEND BRIDGE ==="
+input string BackendURL = "";                      // Backend base URL
+input string BackendAPIKey = "";                   // Backend API key
+
 input group "=== M1 STRATEGY SETTINGS ==="
 input int InpM1MinScore = 90;                      // M1 Minimum Score
 input double InpM1RiskPercent = 1.0;               // M1 Risk Percent (%)

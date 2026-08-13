@@ -9,6 +9,7 @@
 #property strict
 
 #include "Include/Config.mqh"
+#include "Include/BackendBridge.mqh"
 #include "Include/Indicators.mqh"
 #include "Include/MarketStructure.mqh"
 #include "Include/SignalScoring.mqh"
@@ -28,6 +29,9 @@ int OnInit()
    
    GlobalTradingEnabled = InpEnableTrading;
    CreateTradeButton();
+   BackendBridgeInit();
+   if(!EventSetTimer(BACKEND_TIMER_SECONDS))
+      Print(LOG_PREFIX, "Backend timer could not be started. Trading will continue.");
    
    Print(LOG_PREFIX, "EA Initialized successfully. Mode: ", EnumToString(InpTradingMode));
    return INIT_SUCCEEDED;
@@ -38,6 +42,8 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
 {
+   EventKillTimer();
+   BackendBridgeShutdown();
    DeinitIndicators();
    RemoveTradeButton();
    Print(LOG_PREFIX, "EA Deinitialized. Reason: ", reason);
@@ -105,6 +111,14 @@ void OnTick()
       case MODE_M15:  ExecuteStrategy(MODE_M15); break;
       case MODE_AUTO: ExecuteAutoMode(); break;
    }
+}
+
+//+------------------------------------------------------------------+
+//| Periodic backend communication function                          |
+//+------------------------------------------------------------------+
+void OnTimer()
+{
+   BackendBridgeOnTimer();
 }
 
 //+------------------------------------------------------------------+
@@ -233,6 +247,7 @@ bool IsNewAutoSignal(const string comment)
 void ProcessSignal(ENUM_ORDER_TYPE type, SignalResult &signal, double riskPercent, double tpRR, string comment)
 {
    if(!signal.isValid || tpRR <= 0) return;
+   BackendBridgeQueueSignal(type, signal.score, signal.reason, riskPercent, tpRR, comment);
 
    MqlTick tick;
    double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
