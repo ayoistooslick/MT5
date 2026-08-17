@@ -22,6 +22,144 @@ bool IsOpenRetcodeSuccessful(uint retcode)
           retcode == TRADE_RETCODE_DONE_PARTIAL;
 }
 
+double NormalizePriceToTickSize(const string symbol, const double price)
+{
+   int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+   double tickSize = SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_SIZE);
+   if(tickSize <= 0) return NormalizeDouble(price, digits);
+   return NormalizeDouble(MathRound(price / tickSize) * tickSize, digits);
+}
+
+bool AreStopsValidForSymbol(const string symbol, ENUM_ORDER_TYPE type, double sl, double tp, const MqlTick &tick)
+{
+   double point = SymbolInfoDouble(symbol, SYMBOL_POINT);
+   if(point <= 0 || sl <= 0 || tp <= 0) return false;
+
+   long stopsLevel = SymbolInfoInteger(symbol, SYMBOL_TRADE_STOPS_LEVEL);
+   long freezeLevel = SymbolInfoInteger(symbol, SYMBOL_TRADE_FREEZE_LEVEL);
+   double minDistance = (double)MathMax(stopsLevel, freezeLevel) * point;
+
+   if(type == ORDER_TYPE_BUY)
+      return sl < tick.bid && tp > tick.bid &&
+             (minDistance == 0 || (tick.bid - sl >= minDistance && tp - tick.bid >= minDistance));
+
+   if(type == ORDER_TYPE_SELL)
+      return sl > tick.ask && tp < tick.ask &&
+             (minDistance == 0 || (sl - tick.ask >= minDistance && tick.ask - tp >= minDistance));
+
+   return false;
+}
+
+bool ModifyPositionStopsByTicket(ulong ticket, double newSL, const string operation)
+{
+   if(!PositionSelectByTicket(ticket))
+   {
+      Print(LOG_PREFIX, operation, " failed: position no longer exists (ticket ", ticket, ").");
+      return false;
+   }
+
+   string symbol = PositionGetString(POSITION_SYMBOL);
+   ENUM_POSITION_TYPE positionType = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+   ENUM_ORDER_TYPE orderType = (positionType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
+   double currentTP = PositionGetDouble(POSITION_TP);
+   MqlTick tick;
+   if(!SymbolInfoTick(symbol, tick))
+   {
+      Print(LOG_PREFIX, operation, " failed: unable to read market data for ", symbol, " (ticket ", ticket, ").");
+      return false;
+   }
+
+   double normalizedSL = NormalizePriceToTickSize(symbol, newSL);
+   double normalizedTP = NormalizePriceToTickSize(symbol, currentTP);
+   if(!AreStopsValidForSymbol(symbol, orderType, normalizedSL, normalizedTP, tick))
+   {
+      Print(LOG_PREFIX, operation, " rejected: invalid stops for ", symbol, " (ticket ", ticket,
+            ", SL ", normalizedSL, ", TP ", normalizedTP, ").");
+      return false;
+   }
+
+   MqlTradeRequest request = {};
+   MqlTradeResult result = {};
+   request.action = TRADE_ACTION_SLTP;
+   request.position = ticket;
+   request.symbol = symbol;
+   request.magic = InpMagicNumber;
+   request.sl = normalizedSL;
+   request.tp = normalizedTP;
+
+   ResetLastError();
+   bool sent = OrderSend(request, result);
+   if(!sent || !IsTradeRetcodeSuccessful(result.retcode))
+   {
+      Print(LOG_PREFIX, operation, " modification failed for ticket ", ticket,
+            " (symbol ", symbol, "): retcode ", result.retcode,
+            " - ", result.comment, ", error ", GetLastError());
+      return false;
+   }
+
+   return true;
+}
+
+void SetMarketRequestFilling(const string symbol, MqlTradeRequest &request)
+{
+   ENUM_SYMBOL_TRADE_EXECUTION execution =
+      (ENUM_SYMBOL_TRADE_EXECUTION)SymbolInfoInteger(symbol, SYMBOL_TRADE_EXEMODE);
+   if(execution != SYMBOL_TRADE_EXECUTION_MARKET && execution != SYMBOL_TRADE_EXECUTION_EXCHANGE)
+      return;
+
+   uint filling = (uint)SymbolInfoInteger(symbol, SYMBOL_FILLING_MODE);
+   if((filling & SYMBOL_FILLING_FOK) != 0)
+      request.type_filling = ORDER_FILLING_FOK;
+   else if((filling & SYMBOL_FILLING_IOC) != 0)
+      request.type_filling = ORDER_FILLING_IOC;
+   else
+      request.type_filling = ORDER_FILLING_RETURN;
+}
+
+bool ClosePositionByTicket(ulong ticket)
+{
+   if(!PositionSelectByTicket(ticket))
+   {
+      Print(LOG_PREFIX, "Max holding time close failed: position no longer exists (ticket ", ticket, ").");
+      return false;
+   }
+
+   string symbol = PositionGetString(POSITION_SYMBOL);
+   ENUM_POSITION_TYPE positionType = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+   double volume = PositionGetDouble(POSITION_VOLUME);
+   MqlTick tick;
+   if(!SymbolInfoTick(symbol, tick) || volume <= 0)
+   {
+      Print(LOG_PREFIX, "Max holding time close failed: invalid market data or volume for ", symbol,
+            " (ticket ", ticket, ").");
+      return false;
+   }
+
+   MqlTradeRequest request = {};
+   MqlTradeResult result = {};
+   request.action = TRADE_ACTION_DEAL;
+   request.position = ticket;
+   request.symbol = symbol;
+   request.magic = InpMagicNumber;
+   request.volume = volume;
+   request.type = (positionType == POSITION_TYPE_BUY) ? ORDER_TYPE_SELL : ORDER_TYPE_BUY;
+   request.price = (positionType == POSITION_TYPE_BUY) ? tick.bid : tick.ask;
+   request.deviation = 10;
+   SetMarketRequestFilling(symbol, request);
+
+   ResetLastError();
+   bool sent = OrderSend(request, result);
+   if(!sent || !IsTradeRetcodeSuccessful(result.retcode))
+   {
+      Print(LOG_PREFIX, "Max holding time close failed for ticket ", ticket,
+            " (symbol ", symbol, "): retcode ", result.retcode,
+            " - ", result.comment, ", error ", GetLastError());
+      return false;
+   }
+
+   return true;
+}
+
 //+------------------------------------------------------------------+
 //| Open a position                                                  |
 //+------------------------------------------------------------------+
@@ -62,22 +200,7 @@ bool OpenPosition(ENUM_ORDER_TYPE type, double lot, double sl, double tp, string
 //+------------------------------------------------------------------+
 bool AreStopsValid(ENUM_ORDER_TYPE type, double sl, double tp, const MqlTick &tick)
 {
-   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
-   if(point <= 0 || sl <= 0 || tp <= 0) return false;
-
-   long stopsLevel = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL);
-   long freezeLevel = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_FREEZE_LEVEL);
-   double minDistance = (double)MathMax(stopsLevel, freezeLevel) * point;
-
-   if(type == ORDER_TYPE_BUY)
-      return sl < tick.bid && tp > tick.bid &&
-             (minDistance == 0 || (tick.bid - sl >= minDistance && tp - tick.bid >= minDistance));
-
-   if(type == ORDER_TYPE_SELL)
-      return sl > tick.ask && tp < tick.ask &&
-             (minDistance == 0 || (sl - tick.ask >= minDistance && tick.ask - tp >= minDistance));
-
-   return false;
+   return AreStopsValidForSymbol(_Symbol, type, sl, tp, tick);
 }
 
 //+------------------------------------------------------------------+
@@ -145,7 +268,6 @@ void ApplyBreakEven(ulong ticket)
    if(!SymbolInfoTick(_Symbol, tick)) return;
    double currentPrice = (type == POSITION_TYPE_BUY) ? tick.bid : tick.ask;
    double sl = PositionGetDouble(POSITION_SL);
-   double tp = PositionGetDouble(POSITION_TP);
 
    double initialRisk = GetInitialRisk();
    if(initialRisk <= 0) return;
@@ -156,17 +278,12 @@ void ApplyBreakEven(ulong ticket)
    if(currentProfitRR >= InpBETriggerRR)
    {
       double newSL = (type == POSITION_TYPE_BUY) ? openPrice + InpBEOffsetPoints * _Point : openPrice - InpBEOffsetPoints * _Point;
-      newSL = NormalizeDouble(newSL, _Digits);
+      newSL = NormalizePriceToTickSize(_Symbol, newSL);
 
       // Only move if it's better than current SL
       if((type == POSITION_TYPE_BUY && newSL > sl) || (type == POSITION_TYPE_SELL && (newSL < sl || sl == 0)))
       {
-          if(AreStopsValid(type == POSITION_TYPE_BUY ? ORDER_TYPE_BUY : ORDER_TYPE_SELL, newSL, tp, tick))
-          {
-             bool modified = Trade.PositionModify(ticket, newSL, tp);
-             if(!modified || !IsTradeRetcodeSuccessful(Trade.ResultRetcode()))
-                Print(LOG_PREFIX, "Break-even modification failed: ", Trade.ResultRetcodeDescription());
-          }
+         ModifyPositionStopsByTicket(ticket, newSL, "Break-even");
       }
    }
 }
@@ -185,7 +302,6 @@ void ApplyTrailingStop(ulong ticket)
    if(!SymbolInfoTick(_Symbol, tick)) return;
    double currentPrice = (type == POSITION_TYPE_BUY) ? tick.bid : tick.ask;
    double sl = PositionGetDouble(POSITION_SL);
-   double tp = PositionGetDouble(POSITION_TP);
 
    double initialRisk = GetInitialRisk();
    if(initialRisk <= 0) return;
@@ -196,17 +312,12 @@ void ApplyTrailingStop(ulong ticket)
    if(currentProfitRR >= InpTrailingStartRR)
    {
       double newSL = (type == POSITION_TYPE_BUY) ? currentPrice - InpTrailingDistancePoints * _Point : currentPrice + InpTrailingDistancePoints * _Point;
-      newSL = NormalizeDouble(newSL, _Digits);
+      newSL = NormalizePriceToTickSize(_Symbol, newSL);
 
       // Only move if it's better than current SL
       if((type == POSITION_TYPE_BUY && newSL > sl) || (type == POSITION_TYPE_SELL && (newSL < sl || sl == 0)))
       {
-         if(AreStopsValid(type == POSITION_TYPE_BUY ? ORDER_TYPE_BUY : ORDER_TYPE_SELL, newSL, tp, tick))
-         {
-            bool modified = Trade.PositionModify(ticket, newSL, tp);
-            if(!modified || !IsTradeRetcodeSuccessful(Trade.ResultRetcode()))
-               Print(LOG_PREFIX, "Trailing-stop modification failed: ", Trade.ResultRetcodeDescription());
-         }
+         ModifyPositionStopsByTicket(ticket, newSL, "Trailing-stop");
       }
    }
 }
@@ -229,9 +340,7 @@ void CheckMaxHoldingTime(ulong ticket)
 
    if(maxMinutes > 0 && elapsedMinutes >= maxMinutes)
    {
-      if(Trade.PositionClose(ticket) && IsTradeRetcodeSuccessful(Trade.ResultRetcode()))
+      if(ClosePositionByTicket(ticket))
          Print(LOG_PREFIX, "Position closed due to Max Holding Time: ", ticket);
-      else
-         Print(LOG_PREFIX, "Max holding time close failed: ", Trade.ResultRetcodeDescription());
    }
 }
