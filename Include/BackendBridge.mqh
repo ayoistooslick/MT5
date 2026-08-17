@@ -27,6 +27,11 @@ bool BackendBridgeIsConfigured()
    return StringLen(BackendURL) > 0;
 }
 
+bool BackendBridgeIsStrategyTester()
+{
+   return MQLInfoInteger(MQL_TESTER) != 0;
+}
+
 //+------------------------------------------------------------------+
 //| Remove trailing slashes from the configured backend URL           |
 //+------------------------------------------------------------------+
@@ -115,6 +120,7 @@ bool BackendBridgeHttpRequest(const string method,
                               string &response)
 {
    response = "";
+   if(BackendBridgeIsStrategyTester()) return false;
    if(!BackendBridgeIsConfigured()) return false;
 
    string headers = "Content-Type: application/json\r\n";
@@ -205,7 +211,7 @@ void BackendBridgeQueueSignal(const ENUM_ORDER_TYPE type,
                               const double tpRR,
                               const string comment)
 {
-   if(!BackendBridgeIsConfigured()) return;
+   if(!BackendBridgeIsConfigured() || BackendBridgeIsStrategyTester()) return;
 
    int count = ArraySize(g_backendSignalQueue);
    if(count >= BACKEND_MAX_SIGNAL_QUEUE)
@@ -424,7 +430,9 @@ void BackendBridgeInit()
    g_backendLastCommandPoll = 0;
    g_backendLastSignalAttempt = 0;
 
-   if(BackendBridgeIsConfigured())
+   if(BackendBridgeIsStrategyTester())
+      Print(LOG_PREFIX, "Backend bridge disabled in Strategy Tester: MQL5 WebRequest is not supported there.");
+   else if(BackendBridgeIsConfigured())
       Print(LOG_PREFIX, "Backend bridge enabled: ", BackendBridgeBaseUrl());
    else
       Print(LOG_PREFIX, "Backend bridge disabled: BackendURL is empty.");
@@ -443,7 +451,7 @@ void BackendBridgeShutdown()
 //+------------------------------------------------------------------+
 void BackendBridgeOnTimer()
 {
-   if(!BackendBridgeIsConfigured()) return;
+   if(!BackendBridgeIsConfigured() || BackendBridgeIsStrategyTester()) return;
 
    datetime now = TimeCurrent();
    if(now <= 0) now = TimeLocal();
