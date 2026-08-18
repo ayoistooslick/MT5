@@ -78,6 +78,14 @@ string BackendBridgeJsonBool(const bool value)
 }
 
 //+------------------------------------------------------------------+
+//| Return whether a floating-point value can be serialized as JSON  |
+//+------------------------------------------------------------------+
+bool BackendBridgeIsValidNumber(const double value)
+{
+   return MathIsValidNumber(value);
+}
+
+//+------------------------------------------------------------------+
 //| Convert an order type to a dashboard-friendly direction           |
 //+------------------------------------------------------------------+
 string BackendBridgeOrderDirection(const ENUM_ORDER_TYPE type)
@@ -271,6 +279,25 @@ string BackendBridgeBuildPositionsPayload()
       if(ticket == 0) continue;
       if((int)PositionGetInteger(POSITION_MAGIC) != InpMagicNumber) continue;
 
+      double volume = PositionGetDouble(POSITION_VOLUME);
+      double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+      double currentPrice = PositionGetDouble(POSITION_PRICE_CURRENT);
+      double stopLoss = PositionGetDouble(POSITION_SL);
+      double takeProfit = PositionGetDouble(POSITION_TP);
+      double profit = PositionGetDouble(POSITION_PROFIT);
+      double swap = PositionGetDouble(POSITION_SWAP);
+      if(!BackendBridgeIsValidNumber(volume) ||
+         !BackendBridgeIsValidNumber(openPrice) ||
+         !BackendBridgeIsValidNumber(currentPrice) ||
+         !BackendBridgeIsValidNumber(stopLoss) ||
+         !BackendBridgeIsValidNumber(takeProfit) ||
+         !BackendBridgeIsValidNumber(profit) ||
+         !BackendBridgeIsValidNumber(swap))
+      {
+         Print(LOG_PREFIX, "Positions snapshot skipped: invalid position value.");
+         return "";
+      }
+
       if(!first) positions += ",";
       first = false;
 
@@ -280,13 +307,13 @@ string BackendBridgeBuildPositionsPayload()
          "\"ticket\":\"" + (string)ticket + "\"," +
          "\"symbol\":\"" + BackendBridgeJsonEscape(PositionGetString(POSITION_SYMBOL)) + "\"," +
          "\"direction\":\"" + BackendBridgePositionDirection(positionType) + "\"," +
-         "\"volume\":" + DoubleToString(PositionGetDouble(POSITION_VOLUME), 8) + "," +
-         "\"open_price\":" + DoubleToString(PositionGetDouble(POSITION_PRICE_OPEN), _Digits) + "," +
-         "\"current_price\":" + DoubleToString(PositionGetDouble(POSITION_PRICE_CURRENT), _Digits) + "," +
-         "\"stop_loss\":" + DoubleToString(PositionGetDouble(POSITION_SL), _Digits) + "," +
-         "\"take_profit\":" + DoubleToString(PositionGetDouble(POSITION_TP), _Digits) + "," +
-         "\"profit\":" + DoubleToString(PositionGetDouble(POSITION_PROFIT), 2) + "," +
-         "\"swap\":" + DoubleToString(PositionGetDouble(POSITION_SWAP), 2) + "," +
+          "\"volume\":" + DoubleToString(volume, 8) + "," +
+          "\"open_price\":" + DoubleToString(openPrice, _Digits) + "," +
+          "\"current_price\":" + DoubleToString(currentPrice, _Digits) + "," +
+          "\"stop_loss\":" + DoubleToString(stopLoss, _Digits) + "," +
+          "\"take_profit\":" + DoubleToString(takeProfit, _Digits) + "," +
+          "\"profit\":" + DoubleToString(profit, 2) + "," +
+          "\"swap\":" + DoubleToString(swap, 2) + "," +
          "\"magic\":" + (string)PositionGetInteger(POSITION_MAGIC) + "," +
          "\"comment\":\"" + BackendBridgeJsonEscape(PositionGetString(POSITION_COMMENT)) + "\"," +
          "\"opened_at\":" + (string)PositionGetInteger(POSITION_TIME) +
@@ -294,16 +321,30 @@ string BackendBridgeBuildPositionsPayload()
    }
    positions += "]";
 
+   double accountBalance = AccountInfoDouble(ACCOUNT_BALANCE);
+   double accountEquity = AccountInfoDouble(ACCOUNT_EQUITY);
+   double accountMargin = AccountInfoDouble(ACCOUNT_MARGIN);
+   double accountFreeMargin = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+   if(!BackendBridgeIsValidNumber(accountBalance) ||
+      !BackendBridgeIsValidNumber(accountEquity) ||
+      !BackendBridgeIsValidNumber(accountMargin) ||
+      !BackendBridgeIsValidNumber(accountFreeMargin))
+   {
+      Print(LOG_PREFIX, "Positions snapshot skipped: invalid account value.");
+      return "";
+   }
+
    return "{" +
       "\"type\":\"positions\"," +
       "\"timestamp\":" + (string)(long)TimeCurrent() + "," +
       "\"symbol\":\"" + BackendBridgeJsonEscape(_Symbol) + "\"," +
+      "\"magic\":" + IntegerToString(InpMagicNumber) + "," +
       "\"account\":{" +
          "\"login\":" + (string)AccountInfoInteger(ACCOUNT_LOGIN) + "," +
-         "\"balance\":" + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2) + "," +
-         "\"equity\":" + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2) + "," +
-         "\"margin\":" + DoubleToString(AccountInfoDouble(ACCOUNT_MARGIN), 2) + "," +
-         "\"free_margin\":" + DoubleToString(AccountInfoDouble(ACCOUNT_MARGIN_FREE), 2) +
+         "\"balance\":" + DoubleToString(accountBalance, 2) + "," +
+         "\"equity\":" + DoubleToString(accountEquity, 2) + "," +
+         "\"margin\":" + DoubleToString(accountMargin, 2) + "," +
+         "\"free_margin\":" + DoubleToString(accountFreeMargin, 2) +
       "}," +
       "\"positions\":" + positions +
       "}";
@@ -319,14 +360,24 @@ string BackendBridgeBuildCandle(const ENUM_TIMEFRAMES timeframe,
    if(candleTime <= 0)
       return "{\"timeframe\":\"" + timeframeName + "\",\"available\":false}";
 
+   double openPrice = iOpen(_Symbol, timeframe, 1);
+   double highPrice = iHigh(_Symbol, timeframe, 1);
+   double lowPrice = iLow(_Symbol, timeframe, 1);
+   double closePrice = iClose(_Symbol, timeframe, 1);
+   if(!BackendBridgeIsValidNumber(openPrice) ||
+      !BackendBridgeIsValidNumber(highPrice) ||
+      !BackendBridgeIsValidNumber(lowPrice) ||
+      !BackendBridgeIsValidNumber(closePrice))
+      return "";
+
    return "{" +
       "\"timeframe\":\"" + timeframeName + "\"," +
       "\"available\":true," +
       "\"time\":" + (string)(long)candleTime + "," +
-      "\"open\":" + DoubleToString(iOpen(_Symbol, timeframe, 1), _Digits) + "," +
-      "\"high\":" + DoubleToString(iHigh(_Symbol, timeframe, 1), _Digits) + "," +
-      "\"low\":" + DoubleToString(iLow(_Symbol, timeframe, 1), _Digits) + "," +
-      "\"close\":" + DoubleToString(iClose(_Symbol, timeframe, 1), _Digits) + "," +
+      "\"open\":" + DoubleToString(openPrice, _Digits) + "," +
+      "\"high\":" + DoubleToString(highPrice, _Digits) + "," +
+      "\"low\":" + DoubleToString(lowPrice, _Digits) + "," +
+      "\"close\":" + DoubleToString(closePrice, _Digits) + "," +
       "\"volume\":" + (string)iVolume(_Symbol, timeframe, 1) +
       "}";
 }
@@ -337,27 +388,56 @@ string BackendBridgeBuildCandle(const ENUM_TIMEFRAMES timeframe,
 string BackendBridgeBuildMarketPayload()
 {
    MqlTick tick;
-   bool hasTick = SymbolInfoTick(_Symbol, tick);
-   double spreadPoints = 0;
-   if(hasTick && _Point > 0)
-      spreadPoints = (tick.ask - tick.bid) / _Point;
+   if(!SymbolInfoTick(_Symbol, tick))
+   {
+      Print(LOG_PREFIX, "Market snapshot skipped: no valid tick.");
+      return "";
+   }
+
+   double point = _Point;
+   double bid = tick.bid;
+   double ask = tick.ask;
+   if(_Digits < 0 ||
+      !BackendBridgeIsValidNumber(point) || point <= 0 ||
+      !BackendBridgeIsValidNumber(bid) || bid <= 0 ||
+      !BackendBridgeIsValidNumber(ask) || ask <= 0 ||
+      ask < bid)
+   {
+      Print(LOG_PREFIX, "Market snapshot skipped: invalid tick or symbol data.");
+      return "";
+   }
+
+   double spreadPoints = (ask - bid) / point;
+   if(!BackendBridgeIsValidNumber(spreadPoints) || spreadPoints < 0)
+   {
+      Print(LOG_PREFIX, "Market snapshot skipped: invalid spread.");
+      return "";
+   }
+
+   string m1Candle = BackendBridgeBuildCandle(PERIOD_M1, "M1");
+   string m5Candle = BackendBridgeBuildCandle(PERIOD_M5, "M5");
+   string m15Candle = BackendBridgeBuildCandle(PERIOD_M15, "M15");
+   if(StringLen(m1Candle) == 0 ||
+      StringLen(m5Candle) == 0 ||
+      StringLen(m15Candle) == 0)
+   {
+      Print(LOG_PREFIX, "Market snapshot skipped: invalid candle value.");
+      return "";
+   }
 
    return "{" +
       "\"type\":\"market\"," +
       "\"timestamp\":" + (string)(long)TimeCurrent() + "," +
       "\"symbol\":\"" + BackendBridgeJsonEscape(_Symbol) + "\"," +
       "\"digits\":" + IntegerToString(_Digits) + "," +
-      "\"point\":" + DoubleToString(_Point, 10) + "," +
-      "\"tick\":{" +
-         "\"available\":" + BackendBridgeJsonBool(hasTick) + "," +
-         "\"bid\":" + DoubleToString(hasTick ? tick.bid : 0, _Digits) + "," +
-         "\"ask\":" + DoubleToString(hasTick ? tick.ask : 0, _Digits) + "," +
-         "\"spread_points\":" + DoubleToString(spreadPoints, 2) +
-      "}," +
+      "\"point\":" + DoubleToString(point, 10) + "," +
+      "\"bid\":" + DoubleToString(bid, _Digits) + "," +
+      "\"ask\":" + DoubleToString(ask, _Digits) + "," +
+      "\"spreadPoints\":" + DoubleToString(spreadPoints, 2) + "," +
       "\"candles\":[" +
-         BackendBridgeBuildCandle(PERIOD_M1, "M1") + "," +
-         BackendBridgeBuildCandle(PERIOD_M5, "M5") + "," +
-         BackendBridgeBuildCandle(PERIOD_M15, "M15") +
+         m1Candle + "," +
+         m5Candle + "," +
+         m15Candle +
       "]" +
       "}";
 }
@@ -367,7 +447,9 @@ string BackendBridgeBuildMarketPayload()
 //+------------------------------------------------------------------+
 void BackendBridgeSendPositions()
 {
-   BackendBridgePost("/api/v1/ea/positions", BackendBridgeBuildPositionsPayload());
+   string payload = BackendBridgeBuildPositionsPayload();
+   if(StringLen(payload) == 0) return;
+   BackendBridgePost("/api/v1/ea/positions", payload);
 }
 
 //+------------------------------------------------------------------+
@@ -375,7 +457,9 @@ void BackendBridgeSendPositions()
 //+------------------------------------------------------------------+
 void BackendBridgeSendMarket()
 {
-   BackendBridgePost("/api/v1/ea/market", BackendBridgeBuildMarketPayload());
+   string payload = BackendBridgeBuildMarketPayload();
+   if(StringLen(payload) == 0) return;
+   BackendBridgePost("/api/v1/ea/market", payload);
 }
 
 //+------------------------------------------------------------------+
