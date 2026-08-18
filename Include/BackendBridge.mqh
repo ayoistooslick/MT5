@@ -149,6 +149,9 @@ bool BackendBridgeHttpRequest(const string method,
    string resultHeaders = "";
    ResetLastError();
 
+   if(path == "/api/v1/ea/market")
+      Print(LOG_PREFIX, "Outgoing market JSON: ", payload);
+
    int status = WebRequest(method,
                            BackendBridgeBaseUrl() + path,
                            headers,
@@ -169,7 +172,7 @@ bool BackendBridgeHttpRequest(const string method,
    if(status < 200 || status >= 300)
    {
       Print(LOG_PREFIX, "Backend returned HTTP ", status, " for ",
-            method, " ", path, ". Response bytes: ", ArraySize(result));
+            method, " ", path, ". Response body: ", response);
       return false;
    }
 
